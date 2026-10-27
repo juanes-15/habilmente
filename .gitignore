@@ -1,0 +1,36 @@
+# Entornos y caches de Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Empaquetado
+build/
+dist/
+*.egg-info/
+
+# Secretos y configuración local: nunca se versionan
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.pypirc
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Datos locales (este repo solo usa datos sintéticos)
+*.csv
+*.xlsx
+*.parquet
