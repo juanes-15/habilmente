@@ -118,3 +118,9 @@ def test_dia_habil_del_mes_recorre_el_mes(cal: Calendario, año: int, mes: int) 
     for i, dia in enumerate(dias):
         assert cal.dia_habil_del_mes(año, mes, i + 1) == dia
         assert cal.dia_habil_del_mes(año, mes, i - len(dias)) == dia
+
+
+@given(CALENDARIOS, FECHAS)
+def test_explicar_dia_es_coherente(cal: Calendario, dia: date) -> None:
+    habil = cal.es_dia_habil(dia)
+    assert cal.explicar_dia(dia).startswith("Hábil: " if habil else "No hábil: ")

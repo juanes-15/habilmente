@@ -14,6 +14,7 @@ from habilmente import (
     festivos,
     nombre_festivo,
 )
+from tests import oraculo
 from tests.calendarios_oficiales import CALENDARIOS_OFICIALES
 
 TODOS_LOS_AÑOS = range(AÑO_MINIMO, AÑO_MAXIMO + 1)
@@ -27,11 +28,17 @@ def test_coincide_con_calendario_oficial(año: int) -> None:
     assert fechas_festivas(año) == CALENDARIOS_OFICIALES[año]
 
 
-def test_coincide_con_libreria_holidays_en_todo_el_rango() -> None:
-    # Implementación independiente: si ambas coinciden en 117 años, un error común es improbable.
-    for año in TODOS_LOS_AÑOS:
+def test_coincide_con_libreria_holidays_hasta_2100() -> None:
+    # Implementación de terceros; solo cubre hasta 2100.
+    for año in range(AÑO_MINIMO, 2101):
         referencia = frozenset(holidays.country_holidays("CO", years=año))
         assert fechas_festivas(año) == referencia, año
+
+
+def test_coincide_con_oraculo_propio_en_todo_el_rango() -> None:
+    # Reglas escritas aparte y Pascua de dateutil: cubre también 2101 a 2199.
+    for año in TODOS_LOS_AÑOS:
+        assert fechas_festivas(año) == oraculo.festivos(año), año
 
 
 # --- Estructura de cada año ---------------------------------------------------------------

@@ -38,7 +38,12 @@ dev = [
     "holidays>=0.100",
     "python-dateutil>=2.9",
     "types-python-dateutil",
+    "pandas>=2.0",
+    "pandas-stubs",
 ]
+
+[project.scripts]
+habilmente = "habilmente.cli:main"
 
 [project.urls]
 Repository = "https://github.com/juanes-15/habilmente"

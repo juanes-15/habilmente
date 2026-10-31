@@ -29,7 +29,7 @@ def domingo_de_pascua(año: int, /) -> date:
     """Devuelve el Domingo de Pascua (Resurrección) del año indicado.
 
     Args:
-        año: Año entre 1984 y 2100.
+        año: Año entre 1984 y 2199.
 
     Returns:
         La fecha del Domingo de Pascua.

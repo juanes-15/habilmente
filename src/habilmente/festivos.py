@@ -142,7 +142,7 @@ def festivos(año: int, /) -> tuple[Festivo, ...]:
     que celebraciones. Para obtener solo los días use :func:`fechas_festivas`.
 
     Args:
-        año: Año entre 1984 y 2100.
+        año: Año entre 1984 y 2199.
 
     Returns:
         Tupla inmutable de :class:`Festivo`.
@@ -162,7 +162,7 @@ def fechas_festivas(año: int, /) -> frozenset[date]:
     """Devuelve el conjunto de días festivos del año, sin repetidos.
 
     Args:
-        año: Año entre 1984 y 2100.
+        año: Año entre 1984 y 2199.
 
     Returns:
         Conjunto inmutable de fechas.

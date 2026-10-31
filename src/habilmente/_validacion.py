@@ -7,8 +7,8 @@ from datetime import date, datetime
 AÑO_MINIMO = 1984
 """Primer año soportado: la Ley 51 de 1983 (Ley Emiliani) rige desde 1984."""
 
-AÑO_MAXIMO = 2100
-"""Último año soportado: hasta aquí cada año se contrasta con una implementación independiente."""
+AÑO_MAXIMO = 2199
+"""Último año soportado. Los años futuros son una proyección con las leyes vigentes."""
 
 
 def validar_año(año: object) -> int:

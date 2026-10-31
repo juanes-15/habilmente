@@ -305,11 +305,11 @@ def test_fechas_invalidas_en_funciones(funcion: object) -> None:
 
 def test_resultado_fuera_de_rango() -> None:
     with pytest.raises(ValueError, match="queda fuera del rango"):
-        h.siguiente_dia_habil(D(2100, 12, 31))
+        h.siguiente_dia_habil(D(2199, 12, 31))
     with pytest.raises(ValueError, match="queda fuera del rango"):
         h.anterior_dia_habil(D(1984, 1, 2))  # El 1 de enero de 1984 es festivo.
     with pytest.raises(ValueError, match="queda fuera del rango"):
-        h.sumar_dias_habiles(D(2100, 1, 1), 1_000)
+        h.sumar_dias_habiles(D(2199, 1, 1), 1_000)
 
 
 def test_rangos_invalidos() -> None:
@@ -339,6 +339,40 @@ def test_posicion_inexistente_en_el_mes(n: int) -> None:
 
 def test_año_invalido_en_funciones_de_mes() -> None:
     with pytest.raises(ValueError, match="fuera de rango"):
-        h.dias_habiles_del_mes(2101, 1)
+        h.dias_habiles_del_mes(2200, 1)
     with pytest.raises(TypeError, match="entero"):
         h.dia_habil_del_mes("2026", 1, 1)  # type: ignore[arg-type]
+
+
+# --- explicar_dia -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cal", "fecha", "texto"),
+    [
+        (CALENDARIO_ESTANDAR, D(2026, 10, 27), "Hábil: día entre semana"),
+        (CALENDARIO_ESTANDAR, D(2026, 10, 31), "No hábil: sábado"),
+        (CALENDARIO_ESTANDAR, D(2026, 11, 1), "No hábil: domingo"),
+        (CALENDARIO_ESTANDAR, D(2026, 11, 2), "No hábil: festivo (Día de Todos los Santos)"),
+        (PRIMER_Y_ULTIMO, D(2026, 1, 3), "Hábil: sábado hábil según el calendario"),
+        (PRIMER_Y_ULTIMO, D(2027, 5, 1), "No hábil: festivo (Día del Trabajo)"),
+        (
+            Calendario(dias_habiles_extra=[D(2026, 12, 8)]),
+            D(2026, 12, 8),
+            "Hábil: día hábil extra del calendario",
+        ),
+        (
+            Calendario(dias_no_habiles_extra=[D(2026, 12, 24)]),
+            D(2026, 12, 24),
+            "No hábil: día no hábil extra del calendario",
+        ),
+    ],
+)
+def test_explicar_dia(cal: Calendario, fecha: date, texto: str) -> None:
+    assert cal.explicar_dia(fecha) == texto
+
+
+def test_explicar_dia_funcion_de_modulo() -> None:
+    assert h.explicar_dia(datetime(2026, 12, 25, 9)) == "No hábil: festivo (Navidad)"
+    with pytest.raises(TypeError, match=r"datetime\.date"):
+        h.explicar_dia("2026-12-25")  # type: ignore[arg-type]

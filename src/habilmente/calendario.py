@@ -28,7 +28,7 @@ from habilmente._validacion import (
     validar_entero,
     validar_fecha,
 )
-from habilmente.festivos import _fechas_del_año
+from habilmente.festivos import _fechas_del_año, nombre_festivo
 
 ConfigSabados: TypeAlias = Literal["todos"] | Iterable[int] | None
 """Valores aceptados por ``Calendario(sabados=...)``."""
@@ -151,15 +151,25 @@ class Calendario:
         desde_final = -((ultimo_dia - dia.day) // 7 + 1)
         return desde_inicio in self.sabados or desde_final in self.sabados
 
-    def _es_habil(self, dia: date) -> bool:
+    def _clasificar(self, dia: date) -> tuple[bool, str]:
+        """Aplica las reglas en orden de prioridad y devuelve (es hábil, motivo)."""
         if dia in self.dias_habiles_extra:
-            return True
-        if dia in self.dias_no_habiles_extra or dia in _fechas_del_año(dia.year):
-            return False
+            return True, "día hábil extra del calendario"
+        if dia in self.dias_no_habiles_extra:
+            return False, "día no hábil extra del calendario"
+        if dia in _fechas_del_año(dia.year):
+            return False, f"festivo ({nombre_festivo(dia)})"
         dia_semana = dia.weekday()
         if dia_semana == _SABADO:
-            return self._es_sabado_habil(dia)
-        return dia_semana != _DOMINGO
+            if self._es_sabado_habil(dia):
+                return True, "sábado hábil según el calendario"
+            return False, "sábado"
+        if dia_semana == _DOMINGO:
+            return False, "domingo"
+        return True, "día entre semana"
+
+    def _es_habil(self, dia: date) -> bool:
+        return self._clasificar(dia)[0]
 
     def _habiles_del_año(self, año: int) -> tuple[int, ...]:
         """Ordinales de los días hábiles del año, ordenados (se calculan una sola vez)."""
@@ -193,6 +203,27 @@ class Calendario:
             ValueError: Si el año está fuera del rango soportado.
         """
         return self._es_habil(validar_fecha(fecha))
+
+    def explicar_dia(self, fecha: date, /) -> str:
+        """Explica en una frase si la fecha es hábil y por qué regla.
+
+        Args:
+            fecha: ``date`` o ``datetime`` (de este último se usa solo la fecha).
+
+        Returns:
+            Texto como ``"No hábil: festivo (Día de Todos los Santos)"``.
+
+        Raises:
+            TypeError: Si ``fecha`` no es ``date`` ni ``datetime``.
+            ValueError: Si el año está fuera del rango soportado.
+
+        Example:
+            >>> from datetime import date
+            >>> Calendario(sabados=[1, -1]).explicar_dia(date(2026, 1, 3))
+            'Hábil: sábado hábil según el calendario'
+        """
+        habil, motivo = self._clasificar(validar_fecha(fecha))
+        return f"{'Hábil' if habil else 'No hábil'}: {motivo}"
 
     def sumar_dias_habiles(self, fecha: date, /, n: int) -> date:
         """Avanza (o retrocede, si ``n`` es negativo) ``n`` días hábiles.
@@ -347,7 +378,7 @@ class Calendario:
         """Lista los días hábiles de un mes.
 
         Args:
-            año: Año entre 1984 y 2100.
+            año: Año entre 1984 y 2199.
             mes: Mes de 1 a 12.
 
         Returns:
@@ -372,7 +403,7 @@ class Calendario:
         Útil para fechas de corte como "el quinto día hábil" o "el último día hábil".
 
         Args:
-            año: Año entre 1984 y 2100.
+            año: Año entre 1984 y 2199.
             mes: Mes de 1 a 12.
             n: Posición: ``1`` es el primero, ``-1`` el último, ``-2`` el penúltimo.
 
@@ -448,6 +479,11 @@ def dia_habil_del_mes(año: int, mes: int, n: int, /) -> date:
     return CALENDARIO_ESTANDAR.dia_habil_del_mes(año, mes, n)
 
 
+def explicar_dia(fecha: date, /) -> str:
+    """Explica si la fecha es hábil y por qué (ver :meth:`Calendario.explicar_dia`)."""
+    return CALENDARIO_ESTANDAR.explicar_dia(fecha)
+
+
 __all__ = [
     "CALENDARIO_ESTANDAR",
     "Calendario",
@@ -457,6 +493,7 @@ __all__ = [
     "dias_habiles_del_mes",
     "dias_habiles_entre",
     "es_dia_habil",
+    "explicar_dia",
     "listar_dias_habiles",
     "siguiente_dia_habil",
     "sumar_dias_habiles",
