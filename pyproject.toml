@@ -33,6 +33,7 @@ dev = [
     "pytest-cov>=5",
     "ruff>=0.8",
     "mypy>=1.13",
+    "hypothesis>=6.100",
     # Solo para pruebas: implementaciones independientes con las que se contrasta el cálculo.
     "holidays>=0.100",
     "python-dateutil>=2.9",

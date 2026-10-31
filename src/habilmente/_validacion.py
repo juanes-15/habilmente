@@ -56,3 +56,39 @@ def normalizar_fecha(fecha: object) -> date:
     raise TypeError(
         f"Se esperaba datetime.date o datetime.datetime; se recibió {type(fecha).__name__}."
     )
+
+
+def validar_fecha(fecha: object) -> date:
+    """Normaliza la fecha y comprueba que su año esté en el rango soportado.
+
+    Args:
+        fecha: Valor recibido por la función pública.
+
+    Returns:
+        La fecha como ``datetime.date``.
+
+    Raises:
+        TypeError: Si no es ``date`` ni ``datetime``.
+        ValueError: Si su año está fuera del rango soportado.
+    """
+    dia = normalizar_fecha(fecha)
+    validar_año(dia.year)
+    return dia
+
+
+def validar_entero(valor: object, nombre: str) -> int:
+    """Comprueba que ``valor`` sea un ``int`` (``bool`` no se acepta).
+
+    Args:
+        valor: Valor recibido por la función pública.
+        nombre: Nombre del parámetro, para el mensaje de error.
+
+    Returns:
+        El mismo valor, ya validado.
+
+    Raises:
+        TypeError: Si no es un entero.
+    """
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise TypeError(f"'{nombre}' debe ser un entero; se recibió {type(valor).__name__}.")
+    return valor
