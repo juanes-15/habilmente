@@ -29,8 +29,10 @@ from habilmente._textos import DIAS_SEMANA
 from habilmente.calendario import Calendario, ConfigSabados
 from habilmente.festivos import festivos
 
-_PATRON_FECHA = re.compile(r"\d{4}-\d{2}-\d{2}")
-_PATRON_ENTERO = re.compile(r"[+-]?\d+")
+# re.ASCII: sin él, \d también acepta dígitos de otros alfabetos (por ejemplo "٢٠٢٦").
+_PATRON_FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+_PATRON_ENTERO = re.compile(r"[+-]?\d{1,12}", re.ASCII)
+_LARGO_MAXIMO_ECO = 40
 _COMANDOS = frozenset({"festivos", "es-habil", "sumar", "siguiente", "anterior", "entre", "mes"})
 
 EXITO = 0
@@ -41,20 +43,33 @@ ERROR = 2
 # --- Conversión de argumentos -------------------------------------------------------------
 
 
+def _eco(texto: str) -> str:
+    """Repite la entrada del usuario de forma segura en un mensaje de error.
+
+    ``repr`` neutraliza los códigos de control de la terminal (secuencias ESC) y el
+    recorte evita inundar la pantalla con argumentos gigantes.
+    """
+    if len(texto) > _LARGO_MAXIMO_ECO:
+        return f"{texto[:_LARGO_MAXIMO_ECO]!r}… ({len(texto)} caracteres)"
+    return repr(texto)
+
+
 def _fecha(texto: str) -> date:
     if not _PATRON_FECHA.fullmatch(texto):
         raise argparse.ArgumentTypeError(
-            f"fecha inválida {texto!r}: use el formato AAAA-MM-DD, por ejemplo 2026-11-02"
+            f"fecha inválida {_eco(texto)}: use el formato AAAA-MM-DD, por ejemplo 2026-11-02"
         )
     try:
         return date.fromisoformat(texto)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"la fecha {texto!r} no existe") from None
+        raise argparse.ArgumentTypeError(f"la fecha {_eco(texto)} no existe") from None
 
 
 def _entero(texto: str) -> int:
     if not _PATRON_ENTERO.fullmatch(texto):
-        raise argparse.ArgumentTypeError(f"se esperaba un número entero, se recibió {texto!r}")
+        raise argparse.ArgumentTypeError(
+            f"se esperaba un número entero de hasta 12 dígitos, se recibió {_eco(texto)}"
+        )
     return int(texto)
 
 
@@ -74,10 +89,27 @@ def _sabados(texto: str) -> ConfigSabados:
 # --- Construcción del parser --------------------------------------------------------------
 
 
+_LARGO_MAXIMO_MENSAJE = 500
+
+
+def _mensaje_seguro(texto: str) -> str:
+    """Escapa caracteres de control y recorta el mensaje antes de mostrarlo.
+
+    argparse incluye tal cual los argumentos que no reconoce; sin esta limpieza, un
+    argumento con secuencias ESC podría borrar la pantalla o falsear la salida.
+    """
+    limpio = "".join(
+        c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in texto
+    )
+    if len(limpio) > _LARGO_MAXIMO_MENSAJE:
+        return f"{limpio[:_LARGO_MAXIMO_MENSAJE]}… (mensaje recortado)"
+    return limpio
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
-        self.exit(ERROR, f"{self.prog}: error: {message}\n")
+        self.exit(ERROR, f"{self.prog}: error: {_mensaje_seguro(message)}\n")
 
 
 def _crear_parser() -> argparse.ArgumentParser:
@@ -323,5 +355,5 @@ def main(argv: Sequence[str] | None = None, salida: TextIO | None = None) -> int
     try:
         return _EJECUTORES[args.comando](args, salida or sys.stdout)
     except (TypeError, ValueError) as error:
-        sys.stderr.write(f"habilmente: error: {error}\n")
+        sys.stderr.write(f"habilmente: error: {_mensaje_seguro(str(error))}\n")
         return ERROR

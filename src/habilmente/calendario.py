@@ -34,6 +34,7 @@ ConfigSabados: TypeAlias = Literal["todos"] | Iterable[int] | None
 """Valores aceptados por ``Calendario(sabados=...)``."""
 
 _POSICIONES_SABADO = frozenset({1, 2, 3, 4, 5, -1, -2, -3, -4, -5})
+_MAXIMO_FECHAS_EXTRA = 1_000_000
 _SABADO = 5
 _DOMINGO = 6
 
@@ -53,19 +54,25 @@ def _normalizar_sabados(valor: object) -> Literal["todos"] | tuple[int, ...] | N
             "'sabados' debe ser None, \"todos\" o una lista de posiciones como [1, -1]; "
             f"se recibió {type(valor).__name__}."
         )
-    posiciones = list(valor)
-    for posicion in posiciones:
-        if isinstance(posicion, bool) or not isinstance(posicion, int):
+    # Se valida elemento por elemento y se corta en el primer problema: así un iterable
+    # enorme o infinito no puede bloquear el programa (hay a lo sumo 10 posiciones).
+    posiciones: list[int] = []
+    for elemento in valor:
+        if isinstance(elemento, bool) or not isinstance(elemento, int):
             raise TypeError(
-                f"Las posiciones de 'sabados' deben ser enteros; se recibió {posicion!r}."
+                f"Las posiciones de 'sabados' deben ser enteros; se recibió {elemento!r:.40}."
             )
+        posicion = validar_entero(elemento, "sabados")
         if posicion not in _POSICIONES_SABADO:
             raise ValueError(
                 f"Posición de sábado inválida: {posicion}. Use 1 a 5 (primero a quinto) "
                 "o -1 a -5 (último a quinto contando desde el final)."
+                if abs(posicion) < 10**12
+                else "Posición de sábado inválida. Use 1 a 5 o -1 a -5."
             )
-    if len(set(posiciones)) != len(posiciones):
-        raise ValueError(f"Hay posiciones de sábado repetidas: {posiciones}.")
+        if posicion in posiciones:
+            raise ValueError(f"Hay posiciones de sábado repetidas: {posicion}.")
+        posiciones.append(posicion)
     if not posiciones:
         return None
     # Primero las positivas en orden y luego las negativas (-1, -2, ...), como se leen.
@@ -80,7 +87,17 @@ def _normalizar_fechas(valor: object, nombre: str) -> frozenset[date]:
             f"'{nombre}' debe ser una colección de fechas (lista, tupla o conjunto); "
             f"se recibió {type(valor).__name__}."
         )
-    return frozenset(validar_fecha(fecha) for fecha in valor)
+    fechas: set[date] = set()
+    for cantidad, fecha in enumerate(valor, start=1):
+        # Un iterable infinito o desmedido no debe colgar el programa: el rango completo
+        # tiene unas 79.000 fechas, así que un millón de elementos ya es un error claro.
+        if cantidad > _MAXIMO_FECHAS_EXTRA:
+            raise ValueError(
+                f"'{nombre}' tiene más de {_MAXIMO_FECHAS_EXTRA:,} elementos; "
+                "revise que no sea un iterable infinito."
+            )
+        fechas.add(validar_fecha(fecha))
+    return frozenset(fechas)
 
 
 @dataclass(frozen=True, slots=True, init=False)

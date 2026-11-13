@@ -18,19 +18,26 @@ def validar_año(año: object) -> int:
         año: Valor recibido por la función pública.
 
     Returns:
-        El mismo año, ya validado.
+        El año como ``int`` puro (nunca una subclase), ya validado.
 
     Raises:
         TypeError: Si no es un ``int`` (``bool`` tampoco se acepta).
         ValueError: Si está fuera de ``AÑO_MINIMO``..``AÑO_MAXIMO``.
     """
-    if isinstance(año, bool) or not isinstance(año, int):
-        raise TypeError(f"El año debe ser un entero; se recibió {type(año).__name__}.")
-    if not AÑO_MINIMO <= año <= AÑO_MAXIMO:
+    valor = validar_entero(año, "año")
+    if not AÑO_MINIMO <= valor <= AÑO_MAXIMO:
         raise ValueError(
-            f"Año fuera de rango: {año}. Se soportan años entre {AÑO_MINIMO} y {AÑO_MAXIMO}."
+            f"Año fuera de rango: {_recortar(valor)}. "
+            f"Se soportan años entre {AÑO_MINIMO} y {AÑO_MAXIMO}."
         )
-    return año
+    return valor
+
+
+def _recortar(valor: int) -> str:
+    """Evita mensajes de error gigantes con enteros de miles de dígitos."""
+    if abs(valor) < 10**12:
+        return str(valor)
+    return "un número de más de 12 dígitos"
 
 
 def normalizar_fecha(fecha: object) -> date:
@@ -49,9 +56,9 @@ def normalizar_fecha(fecha: object) -> date:
         TypeError: Si no es ``date`` ni ``datetime``. Los textos no se interpretan
             para evitar ambigüedades de formato (``01/02`` puede ser enero o febrero).
     """
-    if isinstance(fecha, datetime):
-        return fecha.date()
-    if isinstance(fecha, date):
+    if isinstance(fecha, (date, datetime)):
+        # Se reconstruye una fecha nueva en vez de confiar en métodos que una subclase
+        # podría redefinir (por ejemplo, un ``.date()`` que devuelva otra cosa).
         return date(fecha.year, fecha.month, fecha.day)
     raise TypeError(
         f"Se esperaba datetime.date o datetime.datetime; se recibió {type(fecha).__name__}."
@@ -84,11 +91,12 @@ def validar_entero(valor: object, nombre: str) -> int:
         nombre: Nombre del parámetro, para el mensaje de error.
 
     Returns:
-        El mismo valor, ya validado.
+        El valor como ``int`` puro. Se usa la implementación base de ``int`` para que
+        una subclase no pueda mentir en comparaciones y saltarse los rangos.
 
     Raises:
         TypeError: Si no es un entero.
     """
     if isinstance(valor, bool) or not isinstance(valor, int):
         raise TypeError(f"'{nombre}' debe ser un entero; se recibió {type(valor).__name__}.")
-    return valor
+    return int.__int__(valor)

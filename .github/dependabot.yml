@@ -1,0 +1,27 @@
+version: 2
+# cooldown: Dependabot espera 7 días antes de proponer una versión nueva. Los paquetes
+# comprometidos suelen detectarse y retirarse en ese lapso.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      acciones:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      desarrollo:
+        patterns: ["*"]
+    commit-message:
+      prefix: "build"

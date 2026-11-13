@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Sin permisos por defecto; cada trabajo pide solo lo que necesita.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  HYPOTHESIS_PROFILE: ci
+
+jobs:
+  calidad:
+    name: Lint, tipos y seguridad
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Instalar
+        run: python -m pip install -e ".[dev]" bandit pip-audit
+      - name: Formato
+        run: ruff format --check .
+      - name: Lint
+        run: ruff check .
+      - name: Tipos (mypy estricto)
+        run: mypy
+      - name: Análisis estático de seguridad (bandit)
+        run: bandit -q -r src
+      - name: Vulnerabilidades conocidas en dependencias (pip-audit)
+        run: pip-audit --skip-editable
+
+  tests:
+    name: Tests (Python ${{ matrix.python }}, pandas ${{ matrix.pandas }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        pandas: ["2.x", "3.x"]
+        include:
+          - { os: windows-latest, python: "3.12", pandas: "3.x" }
+          - { os: macos-latest, python: "3.12", pandas: "3.x" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Instalar
+        shell: bash
+        env:
+          PANDAS: ${{ matrix.pandas == '2.x' && 'pandas>=2.0,<3' || 'pandas>=3' }}
+        run: python -m pip install -e ".[dev]" "$PANDAS"
+      - name: Tests con cobertura
+        run: pytest --cov --cov-report=term-missing
+
+  sin-pandas:
+    name: Tests sin pandas instalado
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Instalar sin pandas
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip uninstall -y pandas pandas-stubs
+      - name: Tests (los de pandas se omiten)
+        run: pytest --ignore=src/habilmente/pandas.py
+      - name: El mensaje de pandas faltante es claro
+        run: |
+          python -c "import habilmente.pandas" 2>&1 | grep -q 'pip install "habilmente\[pandas\]"'
+
+  paquete:
+    name: Construir y revisar el paquete
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Construir
+        run: |
+          python -m pip install build twine
+          python -m build
+          twine check --strict dist/*
+      - name: Instalación limpia desde el wheel
+        run: |
+          python -m venv /tmp/limpio
+          /tmp/limpio/bin/pip install dist/*.whl
+          /tmp/limpio/bin/habilmente es-habil 2026-11-03
+          /tmp/limpio/bin/python -c "import habilmente; print(habilmente.__version__)"

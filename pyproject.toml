@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "habilmente"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Festivos de Colombia y cálculo de días hábiles con calendarios laborales configurables."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Juan Roncancio" }]
 keywords = ["colombia", "festivos", "dias habiles", "ley emiliani", "calendario laboral", "holidays"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Natural Language :: Spanish",
     "Operating System :: OS Independent",
@@ -49,12 +49,13 @@ habilmente = "habilmente.cli:main"
 Repository = "https://github.com/juanes-15/habilmente"
 Issues = "https://github.com/juanes-15/habilmente/issues"
 Changelog = "https://github.com/juanes-15/habilmente/blob/main/CHANGELOG.md"
+Security = "https://github.com/juanes-15/habilmente/security/policy"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/habilmente"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/habilmente", "tests", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/habilmente", "tests", "README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 100
@@ -90,12 +91,13 @@ files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["tests", "src"]
+testpaths = ["tests", "src", "README.md"]
 addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
     "--doctest-modules",
+    "--doctest-glob=README.md",
     "--import-mode=importlib",
 ]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]

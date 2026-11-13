@@ -34,3 +34,6 @@ Thumbs.db
 *.csv
 *.xlsx
 *.parquet
+
+# Cachés de pruebas
+.hypothesis/
