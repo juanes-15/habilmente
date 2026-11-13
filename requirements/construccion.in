@@ -1,0 +1,4 @@
+# Herramientas para construir y publicar el paquete (sin aislamiento, con versiones fijas).
+build
+twine
+hatchling>=1.27
