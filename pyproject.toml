@@ -40,6 +40,9 @@ dev = [
     "types-python-dateutil",
     "pandas>=2.0",
     "pandas-stubs",
+    # Auditoría de seguridad.
+    "bandit>=1.8",
+    "pip-audit>=2.7",
 ]
 
 [project.scripts]

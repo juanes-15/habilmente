@@ -29,8 +29,10 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Instalar
-        run: python -m pip install -e ".[dev]" bandit pip-audit
+      - name: Instalar (versiones fijas verificadas por hash)
+        run: |
+          python -m pip install --require-hashes -r requirements/desarrollo.txt
+          python -m pip install --no-deps -e .
       - name: Formato
         run: ruff format --check .
       - name: Lint
@@ -63,11 +65,13 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Instalar
+      - name: Instalar (versiones fijas verificadas por hash)
         shell: bash
         env:
-          PANDAS: ${{ matrix.pandas == '2.x' && 'pandas>=2.0,<3' || 'pandas>=3' }}
-        run: python -m pip install -e ".[dev]" "$PANDAS"
+          REQUISITOS: ${{ matrix.pandas == '2.x' && 'requirements/desarrollo-pandas2.txt' || 'requirements/desarrollo.txt' }}
+        run: |
+          python -m pip install --require-hashes -r "$REQUISITOS"
+          python -m pip install --no-deps -e .
       - name: Tests con cobertura
         run: pytest --cov --cov-report=term-missing
 
@@ -85,7 +89,8 @@ jobs:
           python-version: "3.12"
       - name: Instalar sin pandas
         run: |
-          python -m pip install -e ".[dev]"
+          python -m pip install --require-hashes -r requirements/desarrollo.txt
+          python -m pip install --no-deps -e .
           python -m pip uninstall -y pandas pandas-stubs
       - name: Tests (los de pandas se omiten)
         run: pytest --ignore=src/habilmente/pandas.py
@@ -107,12 +112,29 @@ jobs:
           python-version: "3.12"
       - name: Construir
         run: |
-          python -m pip install build twine
-          python -m build
+          python -m pip install --require-hashes -r requirements/construccion.txt
+          python -m build --no-isolation
           twine check --strict dist/*
       - name: Instalación limpia desde el wheel
         run: |
           python -m venv /tmp/limpio
-          /tmp/limpio/bin/pip install dist/*.whl
+          /tmp/limpio/bin/pip install --no-deps dist/*.whl
           /tmp/limpio/bin/habilmente es-habil 2026-11-03
           /tmp/limpio/bin/python -c "import habilmente; print(habilmente.__version__)"
+
+  # Un solo check para la protección de la rama: pasa solo si todos los anteriores pasan.
+  ci-completo:
+    name: CI completo
+    if: always()
+    needs: [calidad, tests, sin-pandas, paquete]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Verificar resultados
+        env:
+          RESULTADOS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Resultados: $RESULTADOS"
+          for resultado in $RESULTADOS; do
+            [ "$resultado" = "success" ] || exit 1
+          done
