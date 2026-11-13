@@ -6,6 +6,15 @@ Todos los cambios importantes de este proyecto se documentan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.1] - 2026-11-13
+
+### Corregido
+
+- El extra `pandas` no estaba declarado: `pip install "habilmente[pandas]"` no instalaba
+  pandas, aunque el README y los mensajes de error lo indicaban. Ahora se instala.
+- Nuevo test y chequeo de CI que instalan el wheel con el extra `pandas` y usan
+  `habilmente.pandas`, para que este error no se repita.
+
 ## [0.1.0] - 2026-11-12
 
 Primera versión.
@@ -34,5 +43,6 @@ Primera versión.
 - **CI y seguridad:** GitHub Actions para lint, tipos, tests, seguridad y publicación con
   Trusted Publishing.
 
-[Sin publicar]: https://github.com/juanes-15/habilmente/compare/v0.1.0...HEAD
+[Sin publicar]: https://github.com/juanes-15/habilmente/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/juanes-15/habilmente/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/juanes-15/habilmente/releases/tag/v0.1.0

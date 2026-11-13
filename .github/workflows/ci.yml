@@ -121,6 +121,12 @@ jobs:
           /tmp/limpio/bin/pip install --no-deps dist/*.whl
           /tmp/limpio/bin/habilmente es-habil 2026-11-03
           /tmp/limpio/bin/python -c "import habilmente; print(habilmente.__version__)"
+      - name: El wheel declara el extra pandas y funciona con él
+        run: |
+          unzip -p dist/*.whl '*/METADATA' | grep -qx 'Provides-Extra: pandas'
+          unzip -p dist/*.whl '*/METADATA' | grep -qE "^Requires-Dist: pandas>=2\.0; extra == [\"']pandas[\"']$"
+          /tmp/limpio/bin/pip install --require-hashes -r requirements/pandas.txt
+          /tmp/limpio/bin/python -c "from datetime import date; from habilmente.pandas import tabla_calendario; print(len(tabla_calendario(date(2026, 1, 1), date(2026, 12, 31))))"
 
   # Un solo check para la protección de la rama: pasa solo si todos los anteriores pasan.
   ci-completo:
