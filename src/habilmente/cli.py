@@ -8,6 +8,7 @@ Ejemplos::
     habilmente sumar 2026-10-30 10
     habilmente entre 2026-10-01 2026-10-31
     habilmente mes 2026 11 --n 5
+    habilmente vence 2026-11-13T16:30 5 --hora-corte 15:00 --zona America/Bogota
 
 Códigos de salida: 0 éxito (en ``es-habil``, el día es hábil), 1 el día no es hábil
 (solo ``es-habil``), 2 error en los argumentos.
@@ -21,7 +22,7 @@ import json
 import re
 import sys
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime, time
 from typing import Any, NoReturn, TextIO
 
 from habilmente import __version__
@@ -32,8 +33,14 @@ from habilmente.festivos import festivos
 # re.ASCII: sin él, \d también acepta dígitos de otros alfabetos (por ejemplo "٢٠٢٦").
 _PATRON_FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 _PATRON_ENTERO = re.compile(r"[+-]?\d{1,12}", re.ASCII)
+_PATRON_MOMENTO = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?", re.ASCII
+)
+_PATRON_HORA = re.compile(r"\d{2}:\d{2}", re.ASCII)
 _LARGO_MAXIMO_ECO = 40
-_COMANDOS = frozenset({"festivos", "es-habil", "sumar", "siguiente", "anterior", "entre", "mes"})
+_COMANDOS = frozenset(
+    {"festivos", "es-habil", "sumar", "siguiente", "anterior", "entre", "mes", "vence"}
+)
 
 EXITO = 0
 NO_HABIL = 1
@@ -71,6 +78,30 @@ def _entero(texto: str) -> int:
             f"se esperaba un número entero de hasta 12 dígitos, se recibió {_eco(texto)}"
         )
     return int(texto)
+
+
+def _momento(texto: str) -> date | datetime:
+    if not _PATRON_MOMENTO.fullmatch(texto):
+        raise argparse.ArgumentTypeError(
+            f"momento inválido {_eco(texto)}: use AAAA-MM-DD o AAAA-MM-DDTHH:MM, con zona "
+            "opcional (Z o -05:00), por ejemplo 2026-11-13T16:30"
+        )
+    try:
+        momento = datetime.fromisoformat(texto)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"el momento {_eco(texto)} no existe") from None
+    return momento if "T" in texto else momento.date()
+
+
+def _hora(texto: str) -> time:
+    if not _PATRON_HORA.fullmatch(texto):
+        raise argparse.ArgumentTypeError(
+            f"hora inválida {_eco(texto)}: use HH:MM en formato de 24 horas, por ejemplo 15:00"
+        )
+    try:
+        return time.fromisoformat(texto)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"la hora {_eco(texto)} no existe") from None
 
 
 def _lista_fechas(texto: str) -> list[date]:
@@ -200,6 +231,30 @@ def _crear_parser() -> argparse.ArgumentParser:
         default=None,
         help="devuelve solo el n-ésimo día hábil (1 el primero, -1 el último)",
     )
+
+    p = sub.add_parser(
+        "vence",
+        parents=[calendario, texto_json],
+        help="vencimiento de un plazo, aplicando la hora de corte",
+    )
+    p.add_argument(
+        "momento", type=_momento, help="recepción: AAAA-MM-DD o AAAA-MM-DDTHH:MM[Z|±HH:MM]"
+    )
+    p.add_argument("n", type=_entero, help="días hábiles del plazo (0 o más)")
+    corte = p.add_argument_group("horario de corte")
+    corte.add_argument(
+        "--hora-corte",
+        type=_hora,
+        default=None,
+        metavar="HH:MM",
+        help="lo recibido a esta hora o después cuenta desde el siguiente día hábil",
+    )
+    corte.add_argument(
+        "--zona",
+        default=None,
+        metavar="ZONA",
+        help='zona horaria IANA para momentos con zona, por ejemplo "America/Bogota"',
+    )
     return parser
 
 
@@ -253,6 +308,8 @@ def _calendario(args: argparse.Namespace) -> Calendario:
         sabados=args.sabados,
         dias_no_habiles_extra=args.no_habiles,
         dias_habiles_extra=args.habiles,
+        hora_corte=getattr(args, "hora_corte", None),
+        zona_horaria=getattr(args, "zona", None),
     )
 
 
@@ -323,6 +380,22 @@ def _cmd_mes(args: argparse.Namespace, salida: TextIO) -> int:
     return EXITO
 
 
+def _cmd_vence(args: argparse.Namespace, salida: TextIO) -> int:
+    cal = _calendario(args)
+    efectiva = cal.fecha_efectiva(args.momento)
+    resultado = cal.vencimiento(args.momento, args.n)
+    if args.formato == "json":
+        datos = {
+            "recibido": args.momento.isoformat(),
+            "fecha_efectiva": _con_dia(efectiva),
+            "n": args.n,
+        }
+        _escribir_json({**datos, "vencimiento": _con_dia(resultado)}, salida)
+    else:
+        salida.write(f"{resultado.isoformat()}\n")
+    return EXITO
+
+
 _EJECUTORES = {
     "festivos": _cmd_festivos,
     "es-habil": _cmd_es_habil,
@@ -331,6 +404,7 @@ _EJECUTORES = {
     "anterior": _cmd_anterior,
     "entre": _cmd_entre,
     "mes": _cmd_mes,
+    "vence": _cmd_vence,
 }
 
 

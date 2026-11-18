@@ -1,6 +1,6 @@
 import importlib
 import sys
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -280,3 +280,123 @@ def test_mensaje_claro_si_falta_pandas(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delitem(sys.modules, "habilmente.pandas")
     with pytest.raises(ModuleNotFoundError, match=r'pip install "habilmente\[pandas\]"'):
         importlib.import_module("habilmente.pandas")
+
+
+# --- Horario de corte y zona horaria ------------------------------------------------------
+
+CORTE_BOGOTA = Calendario(hora_corte=time(15, 0), zona_horaria="America/Bogota")
+
+
+def test_fecha_efectiva_y_vencimiento_por_columna() -> None:
+    recibido = serie("2026-11-13 14:59", "2026-11-13 15:00", None, "2026-11-14 08:00")
+    efectiva = hp.fecha_efectiva(recibido, CORTE_BOGOTA)
+    assert pd.api.types.is_datetime64_dtype(efectiva)
+    assert efectiva.dt.date.tolist()[:2] == [date(2026, 11, 13), date(2026, 11, 17)]
+    assert efectiva.isna().tolist() == [False, False, True, False]
+    vence = hp.vencimiento(recibido, 5, CORTE_BOGOTA)
+    assert vence.dt.date.tolist()[0] == date(2026, 11, 23)
+    assert vence.dt.date.tolist()[1] == date(2026, 11, 24)
+
+
+def test_columna_con_zona_usa_la_zona_del_calendario() -> None:
+    # 21:30 UTC del viernes son las 16:30 en Bogotá: después del corte.
+    utc = serie("2026-11-13 21:30", "2026-11-14 04:30").dt.tz_localize("UTC")
+    assert hp.fecha_efectiva(utc, CORTE_BOGOTA).dt.date.tolist() == [date(2026, 11, 17)] * 2
+    # El sábado 04:30 UTC es viernes en Bogotá: hábil con la zona del calendario.
+    assert hp.es_dia_habil(utc, Calendario(zona_horaria="America/Bogota")).tolist() == [True, True]
+    assert hp.es_dia_habil(utc).tolist() == [True, False]
+
+
+def test_columna_object_con_datetimes_con_zona() -> None:
+    utc = pd.Series([datetime(2026, 11, 13, 21, 30, tzinfo=UTC), None], dtype=object)
+    assert hp.fecha_efectiva(utc, CORTE_BOGOTA).dt.date.tolist()[0] == date(2026, 11, 17)
+    assert hp.dias_habiles_entre(utc, utc, CORTE_BOGOTA).tolist() == [0, pd.NA]
+
+
+def test_vencimiento_valida_n_y_coerce() -> None:
+    with pytest.raises(ValueError, match="no puede ser negativo"):
+        hp.vencimiento(serie("2026-11-13"), -1, CORTE_BOGOTA)
+    with pytest.raises(TypeError, match="'n' debe ser un entero"):
+        hp.vencimiento(serie("2026-11-13"), 1.5, CORTE_BOGOTA)  # type: ignore[arg-type]
+    fuera = serie("1980-01-01", "2026-11-13 16:00")
+    assert hp.vencimiento(fuera, 1, CORTE_BOGOTA, errores="coerce").isna().tolist() == [True, False]
+
+
+@given(
+    st.lists(
+        st.one_of(st.datetimes(datetime(2025, 1, 1), datetime(2027, 12, 31)), st.none()),
+        max_size=30,
+    ),
+    st.integers(0, 20),
+)
+def test_vencimiento_coincide_con_el_calculo_fila_por_fila(
+    momentos: list[datetime | None], n: int
+) -> None:
+    columna = pd.Series(pd.to_datetime(momentos), dtype="datetime64[ns]")
+    efectivas = hp.fecha_efectiva(columna, CORTE_BOGOTA).tolist()
+    vencimientos = hp.vencimiento(columna, n, CORTE_BOGOTA).tolist()
+    for i, momento in enumerate(momentos):
+        if momento is None:
+            assert pd.isna(efectivas[i])
+            assert pd.isna(vencimientos[i])
+        else:
+            # pandas guarda microsegundos (o nanosegundos); se compara con el mismo valor.
+            exacto = pd.Timestamp(momento).to_pydatetime()
+            assert efectivas[i].date() == CORTE_BOGOTA.fecha_efectiva(exacto)
+            assert vencimientos[i].date() == CORTE_BOGOTA.vencimiento(exacto, n)
+
+
+def test_festivos_con_numpy_datetime64_en_object() -> None:
+    import numpy as np
+
+    fechas = pd.Series(
+        [np.datetime64("2026-11-02T10:00"), np.datetime64("2026-11-03")], dtype=object
+    )
+    assert hp.es_festivo(fechas).tolist() == [True, False]
+    assert hp.nombre_festivo(fechas).tolist() == ["Día de Todos los Santos", pd.NA]
+
+
+def test_fecha_efectiva_agrupa_por_dia_y_corte(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Un millón de horas distintas no deben ser un millón de cálculos: como mucho dos
+    # por día (antes y después del corte).
+    llamadas: list[object] = []
+    original = Calendario.fecha_efectiva
+
+    def contar(self: Calendario, momento: Any, /) -> date:
+        llamadas.append(momento)
+        return original(self, momento)
+
+    monkeypatch.setattr(Calendario, "fecha_efectiva", contar)
+    segundos = pd.Series(pd.date_range("2026-11-01", "2026-11-11", freq="s", inclusive="left"))
+    resultado = hp.fecha_efectiva(segundos, CORTE_BOGOTA)
+    assert len(segundos) == 864_000
+    assert len(llamadas) == 20  # 10 días x (antes, después).
+    # Comprobación puntual contra el cálculo fila por fila en los bordes del corte.
+    for hora in ("14:59:59.999999", "15:00:00", "23:59:59", "00:00:00"):
+        momento = pd.Timestamp(f"2026-11-06 {hora}")
+        fila = segundos.searchsorted(momento)
+        if fila < len(segundos) and segundos.iloc[fila] == momento:
+            assert resultado.iloc[fila].date() == original(CORTE_BOGOTA, momento.to_pydatetime())
+
+
+@given(
+    st.lists(
+        st.one_of(
+            st.datetimes(datetime(2025, 1, 1), datetime(2027, 12, 31), timezones=st.just(UTC)),
+            st.none(),
+        ),
+        max_size=30,
+    ),
+    st.sampled_from([time(15, 0), time(8, 30, 0, 1), time(23, 59, 59, 999_999), time(0, 0, 0, 1)]),
+)
+def test_fecha_efectiva_con_zona_coincide_fila_por_fila(
+    momentos: list[datetime | None], corte: time
+) -> None:
+    cal = Calendario(hora_corte=corte, zona_horaria="America/Bogota")
+    columna = pd.Series(pd.to_datetime(momentos, utc=True), dtype="datetime64[ns, UTC]")
+    efectivas = hp.fecha_efectiva(columna, cal).tolist()
+    for i, momento in enumerate(momentos):
+        if momento is None:
+            assert pd.isna(efectivas[i])
+        else:
+            assert efectivas[i].date() == cal.fecha_efectiva(momento)

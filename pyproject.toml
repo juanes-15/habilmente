@@ -105,6 +105,8 @@ addopts = [
     "--import-mode=importlib",
 ]
 doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
+# Una API desaprobada hoy es un error mañana: el CI debe enterarse antes que los usuarios.
+filterwarnings = ["error::DeprecationWarning", "error::PendingDeprecationWarning"]
 xfail_strict = true
 
 [tool.coverage.run]

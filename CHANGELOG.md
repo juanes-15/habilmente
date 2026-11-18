@@ -6,6 +6,21 @@ Todos los cambios importantes de este proyecto se documentan aquí. El formato s
 
 ## [Sin publicar]
 
+### Agregado
+
+- **Horario de corte:** `Calendario(hora_corte=time(15, 0))`. Lo recibido a esa hora o
+  después, o en un día no hábil, cuenta desde el siguiente día hábil.
+- **Zona horaria:** `Calendario(zona_horaria="America/Bogota")` convierte los `datetime`
+  con zona antes de calcular, en todas las funciones. Sin ella, el comportamiento no
+  cambia.
+- **Funciones de plazos:** `fecha_efectiva(momento)` y `vencimiento(momento, n)`, como
+  métodos del calendario y como funciones del módulo.
+- **Comando `habilmente vence`:** acepta un momento en formato
+  `AAAA-MM-DDTHH:MM[Z|±HH:MM]`, más `--hora-corte` y `--zona`.
+- **pandas:** `habilmente.pandas.fecha_efectiva` y `habilmente.pandas.vencimiento`. Las
+  funciones de pandas ahora respetan la `zona_horaria` del calendario en columnas con
+  zona.
+
 ## [0.1.1] - 2026-11-13
 
 ### Corregido
