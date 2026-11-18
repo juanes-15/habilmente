@@ -370,3 +370,17 @@ def test_vence_errores_de_la_libreria(
     codigo, salida = ejecutar(*argumentos)
     assert (codigo, salida) == (ERROR, "")
     assert mensaje in capsys.readouterr().err
+
+
+def test_vence_momento_sin_zona_es_hora_local_de_la_zona() -> None:
+    # Sin sufijo de zona, 16:30 se toma como hora local de Bogotá (no se convierte).
+    argumentos = (
+        "vence",
+        "2026-11-13T14:30",
+        "5",
+        "--hora-corte",
+        "15:00",
+        "--zona",
+        "America/Bogota",
+    )
+    assert ejecutar(*argumentos) == (EXITO, "2026-11-23\n")

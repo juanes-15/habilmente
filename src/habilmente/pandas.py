@@ -22,7 +22,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import date, tzinfo
+from datetime import date, time, tzinfo
 from typing import Any, Literal, TypeVar
 
 try:
@@ -95,13 +95,19 @@ def _sin_texto(valor: object) -> object:
 
 
 def _factorizar(
-    serie: object, zona: tzinfo | None = None, *, con_hora: bool = False
+    serie: object,
+    zona: tzinfo | None = None,
+    *,
+    con_hora: bool = False,
+    hora_corte: time | None = None,
 ) -> tuple[np.ndarray[Any, Any], list[object]]:
     """Códigos por fila (-1 = vacío) y los valores distintos, listos para el calendario.
 
     En columnas ``datetime64`` los valores salen en hora local (de ``zona`` si se indica)
-    y, si no se pide la hora, reducidos a fechas para no repetir cálculos. En columnas
-    ``object`` salen tal cual: el calendario los valida y convierte uno por uno.
+    y reducidos para no repetir cálculos: a la fecha, o con ``con_hora`` a la fecha más
+    "antes o después de ``hora_corte``" (solo eso cambia el resultado). Así hay a lo
+    sumo dos valores distintos por día. En columnas ``object`` salen tal cual: el
+    calendario los valida y convierte uno por uno.
     """
     if not isinstance(serie, pd.Series):
         raise TypeError(f"Se esperaba una pandas.Series; se recibió {type(serie).__name__}.")
@@ -111,9 +117,15 @@ def _factorizar(
             if zona is not None:
                 locales = locales.dt.tz_convert(zona)
             locales = locales.dt.tz_localize(None)
-        if not con_hora:
-            locales = locales.dt.normalize()
-        codigos, unicos = pd.factorize(locales)
+        dias = locales.dt.normalize()
+        if con_hora and hora_corte is not None:
+            # Representante de cada grupo: medianoche (antes del corte) o la hora de corte.
+            # Unidad explícita: numpy desaprueba la unidad genérica que usan otros caminos.
+            segundos = hora_corte.hour * 3600 + hora_corte.minute * 60 + hora_corte.second
+            corte = pd.Timedelta(segundos * 1_000_000 + hora_corte.microsecond, unit="us")
+            tarde = (locales - dias) >= corte
+            dias = dias.where(~tarde, dias + corte)
+        codigos, unicos = pd.factorize(dias)
         indice = pd.DatetimeIndex(unicos)
         if con_hora:
             return codigos, [ts.to_pydatetime(warn=False) for ts in indice]
@@ -162,9 +174,10 @@ def _aplicar(
     zona: tzinfo | None = None,
     *,
     con_hora: bool = False,
+    hora_corte: time | None = None,
 ) -> pd.Series[Any]:
     modo = _validar_errores(errores)
-    codigos, unicos = _factorizar(serie, zona, con_hora=con_hora)
+    codigos, unicos = _factorizar(serie, zona, con_hora=con_hora, hora_corte=hora_corte)
     return _expandir(_evaluar(unicos, funcion, modo), codigos, dtype, serie)
 
 
@@ -351,7 +364,13 @@ def fecha_efectiva(
     """
     cal = _validar_calendario(calendario)
     return _aplicar(
-        serie, cal.fecha_efectiva, "datetime64", errores, cal.zona_horaria, con_hora=True
+        serie,
+        cal.fecha_efectiva,
+        "datetime64",
+        errores,
+        cal.zona_horaria,
+        con_hora=True,
+        hora_corte=cal.hora_corte,
     )
 
 
@@ -390,6 +409,7 @@ def vencimiento(
         errores,
         cal.zona_horaria,
         con_hora=True,
+        hora_corte=cal.hora_corte,
     )
 
 

@@ -238,3 +238,27 @@ def test_fecha_efectiva_nunca_retrocede(
     posterior = momento + paso
     assume(posterior.year <= 2027)
     assert cal.fecha_efectiva(momento) <= cal.fecha_efectiva(posterior)
+
+
+def test_tzinfo_defectuoso_falla_al_crear_el_calendario() -> None:
+    class SinDesfase(timezone.__base__):  # type: ignore[misc,name-defined]
+        def utcoffset(self, _: datetime | None) -> None:
+            return None
+
+        def dst(self, _: datetime | None) -> None:
+            return None
+
+        def tzname(self, _: datetime | None) -> str:
+            return "x"
+
+    class DesfaseImposible(SinDesfase):
+        def utcoffset(self, _: datetime | None) -> timedelta:  # type: ignore[override]
+            return timedelta(hours=30)
+
+    class QueExplota(SinDesfase):
+        def utcoffset(self, _: datetime | None) -> timedelta:  # type: ignore[override]
+            raise RuntimeError("tzinfo roto")
+
+    for zona in (SinDesfase(), DesfaseImposible(), QueExplota()):
+        with pytest.raises(ValueError, match="no permite convertir horas"):
+            Calendario(zona_horaria=zona)

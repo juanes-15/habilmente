@@ -23,7 +23,7 @@ from bisect import bisect_left, bisect_right
 from calendar import monthrange
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, tzinfo
+from datetime import UTC, date, datetime, time, tzinfo
 from typing import Literal, TypeAlias
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -46,6 +46,7 @@ _POSICIONES_SABADO = frozenset({1, 2, 3, 4, 5, -1, -2, -3, -4, -5})
 _MAXIMO_FECHAS_EXTRA = 1_000_000
 _SABADO = 5
 _DOMINGO = 6
+_REFERENCIA_UTC = datetime(2000, 1, 1, tzinfo=UTC)
 # Nombres IANA como "America/Bogota" o "Etc/GMT+5". Se filtran antes de consultar la base
 # de zonas horarias del sistema, aunque zoneinfo también rechaza rutas peligrosas.
 _PATRON_ZONA = re.compile(r"[A-Za-z0-9_+\-]{1,30}(?:/[A-Za-z0-9_+\-]{1,30}){0,2}", re.ASCII)
@@ -151,6 +152,15 @@ def _normalizar_zona(valor: object) -> tzinfo | None:
             "'zona_horaria' debe ser un nombre IANA como \"America/Bogota\" o un tzinfo; "
             f"se recibió {type(valor).__name__}."
         )
+    # Se prueba una conversión al crear el calendario: un tzinfo defectuoso debe fallar
+    # aquí con un mensaje claro, no después en cada cálculo.
+    try:
+        _REFERENCIA_UTC.astimezone(valor)
+    except Exception as error:  # Un tzinfo propio puede lanzar cualquier excepción.
+        raise ValueError(
+            f"'zona_horaria' no permite convertir horas ({type(error).__name__}); "
+            'use un nombre IANA como "America/Bogota" o datetime.timezone.'
+        ) from None
     return valor
 
 
@@ -170,7 +180,8 @@ class Calendario:
             semana. Tienen la máxima prioridad.
         hora_corte: Hora a partir de la cual algo recibido cuenta como recibido el
             siguiente día hábil, por ejemplo ``time(15, 0)``. Solo la usan
-            :meth:`fecha_efectiva` y :meth:`vencimiento`.
+            :meth:`fecha_efectiva` y :meth:`vencimiento`; el resto de funciones solo
+            miran la fecha.
         zona_horaria: Zona en la que se interpretan los ``datetime`` con zona
             horaria, como ``"America/Bogota"``. Los ``datetime`` sin zona y las
             fechas se toman tal cual. Sin ella, cada ``datetime`` usa su propia hora
@@ -336,6 +347,9 @@ class Calendario:
         posterior, aunque la fecha de partida sea hábil. Con ``n=0`` se devuelve la
         misma fecha si es hábil o, si no, el siguiente día hábil.
 
+        No aplica ``hora_corte``: para plazos que dependen de la hora de recepción use
+        :meth:`vencimiento`.
+
         Args:
             fecha: Fecha de partida.
             n: Cantidad de días hábiles; puede ser negativa.
@@ -423,7 +437,8 @@ class Calendario:
         ``dias_habiles_entre(a, b) == n``. Si ``inicio`` es posterior a ``fin`` el
         resultado es negativo, y se cumple ``entre(a, b) + entre(b, c) == entre(a, c)``.
         Para listar los días de un rango con ambos extremos incluidos use
-        :meth:`listar_dias_habiles`.
+        :meth:`listar_dias_habiles`. No aplica ``hora_corte``; si las fechas tienen
+        hora, cuente entre sus :meth:`fecha_efectiva`.
 
         Args:
             inicio: Fecha de inicio (no se cuenta).
