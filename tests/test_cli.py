@@ -271,3 +271,102 @@ def test_python_m_habilmente(
         runpy.run_module("habilmente", run_name="__main__")
     assert salida.value.code == EXITO
     assert capsys.readouterr().out == "2027-01-04\n"
+
+
+# --- vence --------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("argumentos", "esperado"),
+    [
+        (("vence", "2026-11-13T14:00", "5", "--hora-corte", "15:00"), "2026-11-23"),
+        (("vence", "2026-11-13T16:30", "5", "--hora-corte", "15:00"), "2026-11-24"),
+        (("vence", "2026-11-13", "5", "--hora-corte", "15:00"), "2026-11-23"),
+        (("vence", "2026-11-14", "1"), "2026-11-18"),
+        (("vence", "2026-11-13T16:30", "0"), "2026-11-13"),
+        (
+            (
+                "vence",
+                "2026-11-13T21:30Z",
+                "5",
+                "--hora-corte",
+                "15:00",
+                "--zona",
+                "America/Bogota",
+            ),
+            "2026-11-24",
+        ),
+        (
+            (
+                "vence",
+                "2026-11-13T19:59:00+00:00",
+                "5",
+                "--hora-corte",
+                "15:00",
+                "--zona",
+                "America/Bogota",
+            ),
+            "2026-11-23",
+        ),
+        (
+            ("vence", "2026-11-06T16:00", "1", "--hora-corte", "15:00", "--sabados", "1,-1"),
+            "2026-11-09",
+        ),
+    ],
+)
+def test_vence(argumentos: tuple[str, ...], esperado: str) -> None:
+    assert ejecutar(*argumentos) == (EXITO, f"{esperado}\n")
+
+
+def test_vence_json() -> None:
+    _, texto = ejecutar(
+        "vence", "2026-11-13T16:30-05:00", "5", "--hora-corte", "15:00", "--zona", "America/Bogota",
+        "--formato", "json",
+    )  # fmt: skip
+    assert json.loads(texto) == {
+        "recibido": "2026-11-13T16:30:00-05:00",
+        "fecha_efectiva": {"fecha": "2026-11-17", "dia_semana": "martes"},
+        "n": 5,
+        "vencimiento": {"fecha": "2026-11-24", "dia_semana": "martes"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("argumentos", "mensaje"),
+    [
+        (("vence", "13/11/2026", "5"), "momento inválido"),
+        (("vence", "2026-11-13 16:30", "5"), "momento inválido"),
+        (("vence", "2026-11-13T16", "5"), "momento inválido"),
+        (("vence", "2026-11-13T25:00", "5"), "no existe"),
+        (("vence", "2026-02-30", "5"), "no existe"),
+        (("vence", "2026-11-13T16:30", "5", "--hora-corte", "3pm"), "hora inválida"),
+        (("vence", "2026-11-13T16:30", "5", "--hora-corte", "15:60"), "no existe"),
+        (("vence", "2026-11-13T16:30", "5", "--hora-corte", "١٥:٠٠"), "hora inválida"),
+        (("vence", "2026-11-13T16:30"), "n"),
+    ],
+)
+def test_vence_errores_de_argumentos(
+    argumentos: tuple[str, ...], mensaje: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as salida:
+        ejecutar(*argumentos)
+    assert salida.value.code == ERROR
+    assert mensaje in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("argumentos", "mensaje"),
+    [
+        (("vence", "2026-11-13", "-1"), "no puede ser negativo"),
+        (("vence", "2026-11-13", "5", "--zona", "../etc/passwd"), "Zona horaria inválida"),
+        (("vence", "2026-11-13", "5", "--zona", "Marte/Olympus"), "Zona horaria desconocida"),
+        (("vence", "2026-11-13", "5", "--hora-corte", "00:00"), "medianoche"),
+        (("vence", "2199-12-31T16:00", "1", "--hora-corte", "15:00"), "fuera del rango"),
+    ],
+)
+def test_vence_errores_de_la_libreria(
+    argumentos: tuple[str, ...], mensaje: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    codigo, salida = ejecutar(*argumentos)
+    assert (codigo, salida) == (ERROR, "")
+    assert mensaje in capsys.readouterr().err

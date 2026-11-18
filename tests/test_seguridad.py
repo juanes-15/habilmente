@@ -16,6 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from datetime import time as hora
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,15 @@ from habilmente.cli import main
 from habilmente.festivos import _festivos_del_año
 
 CODIGO_FUENTE = Path(h.__file__).parent
+CORTE = Calendario(hora_corte=hora(15, 0), zona_horaria="America/Bogota")
 ERRORES_ESPERADOS = (TypeError, ValueError)
+
+# Nombres de zona: válidos, inválidos y hostiles (rutas, caracteres raros, muy largos).
+ZONAS = st.one_of(
+    st.sampled_from(["America/Bogota", "UTC", "Etc/GMT+5", "../../etc/passwd", "/etc/localtime"]),
+    st.text(max_size=40),
+    st.text(alphabet="abcABC/._-+019", max_size=70),
+)
 
 # Cualquier cosa que alguien pueda pasar por error o con mala intención.
 BASURA = st.one_of(
@@ -143,6 +152,9 @@ FUNCIONES_DE_FECHA: list[Callable[[Any], object]] = [
     h.explicar_dia,
     h.siguiente_dia_habil,
     h.anterior_dia_habil,
+    h.fecha_efectiva,
+    CORTE.fecha_efectiva,
+    CORTE.es_dia_habil,
 ]
 FUNCIONES_DE_AÑO: list[Callable[[Any], object]] = [
     h.festivos,
@@ -166,20 +178,34 @@ def test_fuzzing_funciones_de_varios_argumentos(a: object, b: object, c: object)
         lambda: h.listar_dias_habiles(a, b),  # type: ignore[arg-type]
         lambda: h.dias_habiles_del_mes(a, b),  # type: ignore[arg-type]
         lambda: h.dia_habil_del_mes(a, b, c),  # type: ignore[arg-type]
+        lambda: h.vencimiento(a, b),  # type: ignore[arg-type]
+        lambda: CORTE.vencimiento(a, b),  # type: ignore[arg-type]
     ]
     for llamada in llamadas:
         with contextlib.suppress(*ERRORES_ESPERADOS):
             llamada()
 
 
-@given(BASURA, BASURA, BASURA)
-def test_fuzzing_constructor_de_calendario(sabados: object, no: object, si: object) -> None:
+@given(BASURA, BASURA, BASURA, st.one_of(BASURA, st.times()), st.one_of(BASURA, ZONAS))
+def test_fuzzing_constructor_de_calendario(
+    sabados: object, no: object, si: object, corte: object, zona: object
+) -> None:
     with contextlib.suppress(*ERRORES_ESPERADOS):
         Calendario(
             sabados=sabados,  # type: ignore[arg-type]
             dias_no_habiles_extra=no,  # type: ignore[arg-type]
             dias_habiles_extra=si,  # type: ignore[arg-type]
+            hora_corte=corte,  # type: ignore[arg-type]
+            zona_horaria=zona,  # type: ignore[arg-type]
         )
+
+
+@given(st.datetimes(timezones=st.timezones()))
+def test_fuzzing_datetimes_con_cualquier_zona(momento: datetime) -> None:
+    # Cualquier datetime con cualquier zona IANA, incluso en los límites de Python.
+    with contextlib.suppress(ValueError):
+        resultado = CORTE.fecha_efectiva(momento)
+        assert CORTE.es_dia_habil(resultado)
 
 
 @given(st.dates(date(AÑO_MINIMO, 1, 1), date(AÑO_MAXIMO, 12, 31)), st.integers())
@@ -204,6 +230,14 @@ PALABRAS = st.one_of(
             "anterior",
             "entre",
             "mes",
+            "vence",
+            "--hora-corte",
+            "15:00",
+            "--zona",
+            "America/Bogota",
+            "2026-11-13T16:30",
+            "2026-11-13T21:30Z",
+            "../etc/passwd",
             "--formato",
             "json",
             "csv",
@@ -415,7 +449,8 @@ def test_fuzzing_pandas_con_columnas_basura(valores: list[object]) -> None:
     from habilmente import pandas as hp
 
     columna = pd.Series(valores, dtype=object)
-    for funcion in (hp.es_dia_habil, hp.es_festivo, hp.nombre_festivo):
+    funciones = (hp.es_dia_habil, hp.es_festivo, hp.nombre_festivo, hp.fecha_efectiva)
+    for funcion in funciones:
         with contextlib.suppress(*ERRORES_ESPERADOS):
             funcion(columna)
     with contextlib.suppress(*ERRORES_ESPERADOS):

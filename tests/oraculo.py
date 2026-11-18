@@ -7,7 +7,7 @@ el calendario un día a la vez sin cachés ni búsquedas binarias.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from dateutil.easter import easter
 
@@ -90,3 +90,22 @@ def entre(cal: Calendario, a: date, b: date) -> int:
         total += es_habil(cal, actual)
         actual += UN_DIA
     return total
+
+
+def hora_local(cal: Calendario, momento: date) -> tuple[date, time | None]:
+    """Fecha y hora locales calculadas a mano (solo para zonas de desfase fijo)."""
+    if not isinstance(momento, datetime):
+        return momento, None
+    desfase = momento.utcoffset()
+    if cal.zona_horaria is not None and desfase is not None:
+        destino = cal.zona_horaria.utcoffset(None)
+        assert destino is not None, "el oráculo solo admite zonas de desfase fijo"
+        momento = (momento.replace(tzinfo=None) - desfase) + destino
+    return momento.date(), momento.time().replace(tzinfo=None)
+
+
+def fecha_efectiva(cal: Calendario, momento: date) -> date:
+    dia, hora = hora_local(cal, momento)
+    if es_habil(cal, dia) and (cal.hora_corte is None or hora is None or hora < cal.hora_corte):
+        return dia
+    return sumar(cal, dia, 1)

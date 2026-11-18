@@ -2,8 +2,9 @@
 
 Requiere el extra opcional: ``pip install "habilmente[pandas]"``.
 
-Todas las funciones aceptan columnas ``datetime64`` (con o sin zona horaria; se usa la
-fecha local de cada valor) o columnas ``object`` con ``date``/``datetime``. Los valores
+Todas las funciones aceptan columnas ``datetime64`` (con o sin zona horaria) o columnas
+``object`` con ``date``/``datetime``. Con zona horaria se usa la fecha local de cada valor,
+o la de ``zona_horaria`` si el calendario la define. Los valores
 vacíos (``NaT``, ``None``) dan un resultado vacío (``<NA>``) en vez de un error. Cada
 fecha distinta se calcula una sola vez, así que millones de filas se procesan rápido.
 
@@ -21,7 +22,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import date
+from datetime import date, tzinfo
 from typing import Any, Literal, TypeVar
 
 try:
@@ -36,7 +37,6 @@ from habilmente._textos import DIAS_SEMANA
 from habilmente._validacion import (
     AÑO_MAXIMO,
     AÑO_MINIMO,
-    normalizar_fecha,
     validar_entero,
     validar_fecha,
 )
@@ -52,10 +52,12 @@ __all__ = [
     "dias_habiles_entre",
     "es_dia_habil",
     "es_festivo",
+    "fecha_efectiva",
     "marcar_dias_habiles",
     "nombre_festivo",
     "sumar_dias_habiles",
     "tabla_calendario",
+    "vencimiento",
 ]
 
 
@@ -81,27 +83,44 @@ def _validar_calendario(calendario: object) -> Calendario:
     return calendario
 
 
-def _a_fecha(valor: object) -> date:
+def _sin_texto(valor: object) -> object:
     if isinstance(valor, str):
         raise TypeError(
-            f"La columna contiene texto ({valor!r}); conviértala primero con pd.to_datetime(...)."
+            f"La columna contiene texto ({valor!r:.40}); conviértala primero con "
+            "pd.to_datetime(...)."
         )
     if isinstance(valor, np.datetime64):
-        return pd.Timestamp(valor).date()
-    return normalizar_fecha(valor)
+        return pd.Timestamp(valor)
+    return valor
 
 
-def _factorizar(serie: object) -> tuple[np.ndarray[Any, Any], list[date]]:
-    """Códigos por fila (-1 = vacío) y la lista de fechas distintas."""
+def _factorizar(
+    serie: object, zona: tzinfo | None = None, *, con_hora: bool = False
+) -> tuple[np.ndarray[Any, Any], list[object]]:
+    """Códigos por fila (-1 = vacío) y los valores distintos, listos para el calendario.
+
+    En columnas ``datetime64`` los valores salen en hora local (de ``zona`` si se indica)
+    y, si no se pide la hora, reducidos a fechas para no repetir cálculos. En columnas
+    ``object`` salen tal cual: el calendario los valida y convierte uno por uno.
+    """
     if not isinstance(serie, pd.Series):
         raise TypeError(f"Se esperaba una pandas.Series; se recibió {type(serie).__name__}.")
     if pd.api.types.is_datetime64_any_dtype(serie.dtype):
-        locales = serie.dt.tz_localize(None) if serie.dt.tz is not None else serie
-        codigos, unicos = pd.factorize(locales.dt.normalize())
-        return codigos, [ts.date() for ts in pd.DatetimeIndex(unicos)]
+        locales = serie
+        if serie.dt.tz is not None:
+            if zona is not None:
+                locales = locales.dt.tz_convert(zona)
+            locales = locales.dt.tz_localize(None)
+        if not con_hora:
+            locales = locales.dt.normalize()
+        codigos, unicos = pd.factorize(locales)
+        indice = pd.DatetimeIndex(unicos)
+        if con_hora:
+            return codigos, [ts.to_pydatetime(warn=False) for ts in indice]
+        return codigos, [ts.date() for ts in indice]
     if serie.dtype == object:
         codigos, unicos = pd.factorize(serie)
-        return codigos, [_a_fecha(valor) for valor in unicos]
+        return codigos, [_sin_texto(valor) for valor in unicos]
     raise TypeError(
         f"La columna {serie.name!r} tiene tipo {serie.dtype}; se esperaban fechas "
         "(datetime64 o date). Conviértala primero con pd.to_datetime(...)."
@@ -109,12 +128,12 @@ def _factorizar(serie: object) -> tuple[np.ndarray[Any, Any], list[date]]:
 
 
 def _evaluar(
-    fechas: Sequence[date], funcion: Callable[[date], _T], errores: Errores
+    valores: Sequence[Any], funcion: Callable[[Any], _T], errores: Errores
 ) -> list[_T | None]:
     resultados: list[_T | None] = []
-    for fecha in fechas:
+    for valor in valores:
         try:
-            resultados.append(funcion(fecha))
+            resultados.append(funcion(valor))
         except ValueError:
             if errores == "raise":
                 raise
@@ -137,13 +156,21 @@ def _expandir(
 
 def _aplicar(
     serie: pd.Series[Any],
-    funcion: Callable[[date], object],
+    funcion: Callable[[Any], object],
     dtype: str,
     errores: Errores,
+    zona: tzinfo | None = None,
+    *,
+    con_hora: bool = False,
 ) -> pd.Series[Any]:
-    codigos, fechas = _factorizar(serie)
-    valores = _evaluar(fechas, lambda f: funcion(validar_fecha(f)), _validar_errores(errores))
-    return _expandir(valores, codigos, dtype, serie)
+    modo = _validar_errores(errores)
+    codigos, unicos = _factorizar(serie, zona, con_hora=con_hora)
+    return _expandir(_evaluar(unicos, funcion, modo), codigos, dtype, serie)
+
+
+def _es_festivo(valor: object) -> bool:
+    dia = validar_fecha(valor)
+    return dia in _fechas_del_año(dia.year)
 
 
 # --- Funciones públicas -------------------------------------------------------------------
@@ -171,7 +198,7 @@ def es_dia_habil(
         ValueError: Si hay fechas fuera de rango y ``errores="raise"``.
     """
     cal = _validar_calendario(calendario)
-    return _aplicar(serie, cal.es_dia_habil, "boolean", errores)
+    return _aplicar(serie, cal.es_dia_habil, "boolean", errores, cal.zona_horaria)
 
 
 def es_festivo(serie: pd.Series[Any], *, errores: Errores = "raise") -> pd.Series[Any]:
@@ -188,7 +215,7 @@ def es_festivo(serie: pd.Series[Any], *, errores: Errores = "raise") -> pd.Serie
         TypeError: Si la columna no contiene fechas.
         ValueError: Si hay fechas fuera de rango y ``errores="raise"``.
     """
-    return _aplicar(serie, lambda f: f in _fechas_del_año(f.year), "boolean", errores)
+    return _aplicar(serie, _es_festivo, "boolean", errores)
 
 
 def nombre_festivo(serie: pd.Series[Any], *, errores: Errores = "raise") -> pd.Series[Any]:
@@ -205,7 +232,7 @@ def nombre_festivo(serie: pd.Series[Any], *, errores: Errores = "raise") -> pd.S
         TypeError: Si la columna no contiene fechas.
         ValueError: Si hay fechas fuera de rango y ``errores="raise"``.
     """
-    return _aplicar(serie, _nombre_festivo, "string", errores)
+    return _aplicar(serie, lambda v: _nombre_festivo(validar_fecha(v)), "string", errores)
 
 
 def sumar_dias_habiles(
@@ -234,7 +261,9 @@ def sumar_dias_habiles(
     """
     cal = _validar_calendario(calendario)
     validar_entero(n, "n")
-    return _aplicar(serie, lambda f: cal.sumar_dias_habiles(f, n), "datetime64", errores)
+    return _aplicar(
+        serie, lambda v: cal.sumar_dias_habiles(v, n), "datetime64", errores, cal.zona_horaria
+    )
 
 
 def dias_habiles_entre(
@@ -266,32 +295,102 @@ def dias_habiles_entre(
     """
     cal = _validar_calendario(calendario)
     modo = _validar_errores(errores)
-    codigos_inicio, fechas_inicio = _factorizar(inicio)
-    codigos_fin, fechas_fin = _factorizar(fin)
+    codigos_inicio, unicos_inicio = _factorizar(inicio, cal.zona_horaria)
+    codigos_fin, unicos_fin = _factorizar(fin, cal.zona_horaria)
     if not inicio.index.equals(fin.index):
         raise ValueError("'inicio' y 'fin' deben tener el mismo índice (las mismas filas).")
+    fechas_inicio = _evaluar(unicos_inicio, cal._fecha, modo)
+    fechas_fin = _evaluar(unicos_fin, cal._fecha, modo)
 
     # Con un acumulado de días hábiles hasta cada fecha (incluida), cada fila se resuelve
     # con una resta: entre(a, b) = acumulado(b) - acumulado(a). Los años previos se suman
     # una sola vez desde el primer año presente en los datos.
-    años = sorted({f.year for f in (*fechas_inicio, *fechas_fin)} & _AÑOS_SOPORTADOS)
+    años = sorted(
+        {f.year for f in (*fechas_inicio, *fechas_fin) if f is not None} & _AÑOS_SOPORTADOS
+    )
     previos: dict[int, int] = {}
     total = 0
     for año in range(años[0], años[-1] + 1) if años else ():
         previos[año] = total
         total += len(cal._habiles_del_año(año))
 
-    def acumulado(fecha: date) -> int:
-        dia = validar_fecha(fecha)
-        return previos[dia.year] + cal._habiles_hasta(dia)
+    def acumulado(dia: date | None) -> int | None:
+        return None if dia is None else previos[dia.year] + cal._habiles_hasta(dia)
 
-    valores_inicio = _evaluar(fechas_inicio, acumulado, modo)
-    valores_fin = _evaluar(fechas_fin, acumulado, modo)
+    valores_inicio = [acumulado(dia) for dia in fechas_inicio]
+    valores_fin = [acumulado(dia) for dia in fechas_fin]
     a = _expandir(valores_inicio, codigos_inicio, "Int64", inicio)
     b = _expandir(valores_fin, codigos_fin, "Int64", inicio)
     resultado = b - a
     resultado.name = None
     return resultado
+
+
+def fecha_efectiva(
+    serie: pd.Series[Any],
+    calendario: Calendario | None = None,
+    *,
+    errores: Errores = "raise",
+) -> pd.Series[Any]:
+    """Día hábil en que se entiende recibido cada valor, con la hora de corte del calendario.
+
+    Usa la hora de cada valor: es la versión por columna de
+    :meth:`habilmente.Calendario.fecha_efectiva`.
+
+    Args:
+        serie: Columna de momentos (``datetime64`` con o sin zona, o ``object``).
+        calendario: Calendario laboral, normalmente con ``hora_corte``.
+        errores: ``"raise"`` o ``"coerce"`` (ver :func:`es_dia_habil`).
+
+    Returns:
+        Serie de fechas (``datetime64``) con el mismo índice y nombre.
+
+    Raises:
+        TypeError: Si la columna no contiene fechas.
+        ValueError: Si una fecha o su resultado salen del rango y ``errores="raise"``.
+    """
+    cal = _validar_calendario(calendario)
+    return _aplicar(
+        serie, cal.fecha_efectiva, "datetime64", errores, cal.zona_horaria, con_hora=True
+    )
+
+
+def vencimiento(
+    serie: pd.Series[Any],
+    n: int,
+    calendario: Calendario | None = None,
+    *,
+    errores: Errores = "raise",
+) -> pd.Series[Any]:
+    """Vencimiento de un plazo de ``n`` días hábiles para cada momento de recepción.
+
+    Es la versión por columna de :meth:`habilmente.Calendario.vencimiento`.
+
+    Args:
+        serie: Columna de momentos de recepción.
+        n: Días hábiles del plazo (0 o más).
+        calendario: Calendario laboral, normalmente con ``hora_corte``.
+        errores: ``"raise"`` o ``"coerce"`` (ver :func:`es_dia_habil`).
+
+    Returns:
+        Serie de fechas (``datetime64``) con el mismo índice y nombre.
+
+    Raises:
+        TypeError: Si la columna no contiene fechas o ``n`` no es entero.
+        ValueError: Si ``n`` es negativo, o una fecha o su resultado salen del rango y
+            ``errores="raise"``.
+    """
+    cal = _validar_calendario(calendario)
+    if validar_entero(n, "n") < 0:
+        raise ValueError(f"'n' no puede ser negativo en un plazo; se recibió {n}.")
+    return _aplicar(
+        serie,
+        lambda v: cal.vencimiento(v, n),
+        "datetime64",
+        errores,
+        cal.zona_horaria,
+        con_hora=True,
+    )
 
 
 def marcar_dias_habiles(
